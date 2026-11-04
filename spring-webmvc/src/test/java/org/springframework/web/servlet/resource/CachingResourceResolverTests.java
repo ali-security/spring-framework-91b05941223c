@@ -170,6 +170,42 @@ public class CachingResourceResolverTests {
 		assertThat(this.chain.resolveResource(request, "bar.css", this.locations)).isSameAs(gzipped);
 	}
 
+	@Test  // CVE-2026-22741
+	public void resolveResourceSubstringEncodingNotInCacheKey() {
+		String file = "bar.css";
+
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", file);
+		request.addHeader("Accept-Encoding", "x-gzip-foo, notgzip;q=1, hybrid");
+		Resource expected = this.chain.resolveResource(request, file, this.locations);
+
+		assertThat(this.cache.get(resourceKey(file)).get()).isSameAs(expected);
+		assertThat(this.cache.get(resourceKey(file + "+encoding=gzip"))).isNull();
+		assertThat(this.cache.get(resourceKey(file + "+encoding=br"))).isNull();
+		assertThat(this.cache.get(resourceKey(file + "+encoding=br,gzip"))).isNull();
+	}
+
+	@Test  // CVE-2026-22741
+	public void resolveResourceAcceptEncodingCacheKeyIsCaseInsensitive() {
+		String file = "bar.css";
+
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", file);
+		request.addHeader("Accept-Encoding", "GZIP;q=1.0 , Br ");
+		Resource expected = this.chain.resolveResource(request, file, this.locations);
+
+		assertThat(this.cache.get(resourceKey(file + "+encoding=br,gzip")).get()).isSameAs(expected);
+	}
+
+	@Test  // CVE-2026-22741
+	public void resolveResourceBlankAcceptEncoding() {
+		String file = "bar.css";
+
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", file);
+		request.addHeader("Accept-Encoding", "   ");
+		Resource expected = this.chain.resolveResource(request, file, this.locations);
+
+		assertThat(this.cache.get(resourceKey(file)).get()).isSameAs(expected);
+	}
+
 	private static String resourceKey(String key) {
 		return CachingResourceResolver.RESOLVED_RESOURCE_CACHE_KEY_PREFIX + key;
 	}
