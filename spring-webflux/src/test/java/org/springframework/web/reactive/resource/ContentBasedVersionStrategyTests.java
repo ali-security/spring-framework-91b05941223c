@@ -61,6 +61,21 @@ public class ContentBasedVersionStrategyTests {
 		assertThat(this.strategy.removeVersion(String.format(path, "-", hash), hash)).isEqualTo(String.format(path, "", ""));
 	}
 
+	@Test // gh-36698
+	public void removeVersionOnlyOnce() {
+		String hash = "sha";
+		String file = "font-awesome/css%s%s/font-awesome.min%s%s.css";
+
+		assertThat(this.strategy.removeVersion(String.format(file, "-", hash, "-", hash), hash))
+				.isEqualTo(String.format(file, "-", hash, "", ""));
+	}
+
+	@Test // gh-36698
+	public void removeVersionWhenAbsent() {
+		assertThat(this.strategy.removeVersion("font-awesome/css/font-awesome.min.css", "sha"))
+				.isEqualTo("font-awesome/css/font-awesome.min.css");
+	}
+
 	@Test
 	public void getResourceVersion() throws Exception {
 		Resource expected = new ClassPathResource("test/bar.css", getClass());

@@ -64,6 +64,21 @@ public class ContentBasedVersionStrategyTests {
 	}
 
 	@Test
+	public void removeVersionOnlyOnce() {
+		String hash = "sha";
+		String file = "font-awesome/css%s%s/font-awesome.min%s%s.css";
+
+		assertThat(this.versionStrategy.removeVersion(String.format(file, "-", hash, "-", hash), hash))
+				.isEqualTo(String.format(file, "-", hash, "", ""));
+	}
+
+	@Test
+	public void removeVersionWhenAbsent() {
+		assertThat(this.versionStrategy.removeVersion("font-awesome/css/font-awesome.min.css", "sha"))
+				.isEqualTo("font-awesome/css/font-awesome.min.css");
+	}
+
+	@Test
 	public void getResourceVersion() throws IOException {
 		Resource expected = new ClassPathResource("test/bar.css", getClass());
 		String hash = DigestUtils.md5DigestAsHex(FileCopyUtils.copyToByteArray(expected.getInputStream()));

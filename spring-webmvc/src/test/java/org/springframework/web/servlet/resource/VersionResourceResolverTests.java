@@ -117,6 +117,69 @@ public class VersionResourceResolverTests {
 		verify(this.versionStrategy, times(1)).removeVersion(versionFile, version);
 	}
 
+	@Test // gh-36698
+	public void resolveResourceIgnoresBlankPathAfterVersionRemoved() throws Exception {
+		String versionFile = "bar-version.css";
+		String version = "version";
+		given(this.chain.resolveResource(null, versionFile, this.locations)).willReturn(null);
+		given(this.versionStrategy.extractVersion(versionFile)).willReturn(version);
+		given(this.versionStrategy.removeVersion(versionFile, version)).willReturn("");
+
+		this.resolver.setStrategyMap(Collections.singletonMap("/**", this.versionStrategy));
+		Resource actual = this.resolver.resolveResourceInternal(null, versionFile, this.locations, this.chain);
+		assertThat((Object) actual).isNull();
+		verify(this.chain, never()).resolveResource(null, "", this.locations);
+	}
+
+	@Test // gh-36698
+	public void resolveResourceIgnoresTraversalPathAfterVersionRemoved() throws Exception {
+		String versionFile = "bar-version.css";
+		String version = "version";
+		given(this.chain.resolveResource(null, versionFile, this.locations)).willReturn(null);
+		given(this.versionStrategy.extractVersion(versionFile)).willReturn(version);
+		given(this.versionStrategy.removeVersion(versionFile, version)).willReturn("../../secret.css");
+
+		this.resolver.setStrategyMap(Collections.singletonMap("/**", this.versionStrategy));
+		Resource actual = this.resolver.resolveResourceInternal(null, versionFile, this.locations, this.chain);
+		assertThat((Object) actual).isNull();
+		verify(this.chain, never()).resolveResource(null, "../../secret.css", this.locations);
+	}
+
+	@Test
+	public void resolveResourceIgnoresEncodedTraversalPathAfterVersionRemoved() throws Exception {
+		String versionFile = "bar-version.css";
+		String version = "version";
+		String encodedTraversal = "%2e%2e/secret.css";
+		given(this.chain.resolveResource(null, versionFile, this.locations)).willReturn(null);
+		given(this.versionStrategy.extractVersion(versionFile)).willReturn(version);
+		given(this.versionStrategy.removeVersion(versionFile, version)).willReturn(encodedTraversal);
+
+		this.resolver.setStrategyMap(Collections.singletonMap("/**", this.versionStrategy));
+		Resource actual = this.resolver.resolveResourceInternal(null, versionFile, this.locations, this.chain);
+		assertThat((Object) actual).isNull();
+		verify(this.chain, never()).resolveResource(null, encodedTraversal, this.locations);
+	}
+
+	@Test // gh-36698
+	public void resolveResourceDoesNotSynthesizeTraversalPathFromRepeatedVersion() throws Exception {
+		// The request path holds no "../" of its own, so it clears the resource handler's
+		// checks, but removing *every* occurrence of the candidate version would turn it
+		// into "../../secret.css", a path that escapes the configured locations.
+		String versionFile = "..-sha/..-sha/secret-sha.css";
+		String singleRemoval = "..-sha/..-sha/secret.css";
+		String traversal = "../../secret.css";
+		given(this.chain.resolveResource(null, versionFile, this.locations)).willReturn(null);
+		given(this.chain.resolveResource(null, singleRemoval, this.locations)).willReturn(null);
+
+		this.resolver.setStrategyMap(Collections.singletonMap("/**", new ContentVersionStrategy()));
+		Resource actual = this.resolver.resolveResourceInternal(null, versionFile, this.locations, this.chain);
+		assertThat((Object) actual).isNull();
+		// Only the LAST version occurrence is removed, so the escaping path is never built...
+		verify(this.chain, never()).resolveResource(null, traversal, this.locations);
+		// ...and the de-versioned path that IS forwarded keeps the literal ".."-prefixed segments.
+		verify(this.chain, times(1)).resolveResource(null, singleRemoval, this.locations);
+	}
+
 	@Test
 	public void resolveResourceVersionDoesNotMatch() throws Exception {
 		String versionFile = "bar-version.css";
