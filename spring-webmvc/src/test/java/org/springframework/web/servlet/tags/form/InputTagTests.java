@@ -297,6 +297,46 @@ public class InputTagTests extends AbstractFormTagTests {
 	}
 
 	@Test
+	public void withErrorsAndHtmlEscaping() throws Exception {
+		this.tag.setPath("name");
+		this.tag.setCssClass("\"good\"");
+		this.tag.setCssErrorClass("\"bad\"");
+
+		BeanPropertyBindingResult errors = new BeanPropertyBindingResult(this.rob, COMMAND_NAME);
+		errors.rejectValue("name", "some.code", "Default Message");
+		errors.rejectValue("name", "too.short", "Too Short");
+		exposeBindingResult(errors);
+
+		assertThat(this.tag.doStartTag()).isEqualTo(Tag.SKIP_BODY);
+
+		String output = getOutput();
+		assertTagOpened(output);
+		assertTagClosed(output);
+
+		assertContainsAttribute(output, "type", getType());
+		assertValueAttribute(output, "Rob");
+		assertContainsAttribute(output, "class", "&quot;bad&quot;");
+	}
+
+	@Test
+	public void withoutErrorsAndHtmlEscaping() throws Exception {
+		this.tag.setPath("name");
+		this.tag.setCssClass("\"good\"");
+		this.tag.setCssErrorClass("\"bad\"");
+		this.tag.setCssStyle("\"style\"");
+
+		assertThat(this.tag.doStartTag()).isEqualTo(Tag.SKIP_BODY);
+
+		String output = getOutput();
+		assertTagOpened(output);
+		assertTagClosed(output);
+
+		assertContainsAttribute(output, "type", getType());
+		assertContainsAttribute(output, "class", "&quot;good&quot;");
+		assertContainsAttribute(output, "style", "&quot;style&quot;");
+	}
+
+	@Test
 	public void disabledFalse() throws Exception {
 		this.tag.setPath("name");
 		this.tag.setDisabled(false);
