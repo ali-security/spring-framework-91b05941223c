@@ -16,6 +16,7 @@
 
 package org.springframework.web.servlet.view.script;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.condition.DisabledForJreRange;
 import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.context.ApplicationContextException;
 import org.springframework.context.support.StaticApplicationContext;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.context.support.StaticWebApplicationContext;
@@ -240,18 +242,62 @@ public class ScriptTemplateViewTests {
 		this.view.setUrl("org/springframework/web/servlet/view/script/empty.txt");
 		this.view.render(model, request, response);
 		assertThat(response.getContentAsString()).isEqualTo("foo");
+		DirectFieldAccessor viewAccessor = new DirectFieldAccessor(this.view);
+		String[] resourceLoaderPaths = (String[]) viewAccessor.getPropertyValue("resourceLoaderPaths");
+		assertThat(resourceLoaderPaths).containsExactly("classpath:");
 
 		response = new MockHttpServletResponse();
 		this.view.setResourceLoaderPath("classpath:org/springframework/web/servlet/view/script/");
 		this.view.setUrl("empty.txt");
 		this.view.render(model, request, response);
 		assertThat(response.getContentAsString()).isEqualTo("foo");
+		resourceLoaderPaths = (String[]) viewAccessor.getPropertyValue("resourceLoaderPaths");
+		assertThat(resourceLoaderPaths).containsExactly("classpath:org/springframework/web/servlet/view/script/");
 
 		response = new MockHttpServletResponse();
 		this.view.setResourceLoaderPath("classpath:org/springframework/web/servlet/view/script");
 		this.view.setUrl("empty.txt");
 		this.view.render(model, request, response);
 		assertThat(response.getContentAsString()).isEqualTo("foo");
+		resourceLoaderPaths = (String[]) viewAccessor.getPropertyValue("resourceLoaderPaths");
+		assertThat(resourceLoaderPaths).containsExactly("classpath:org/springframework/web/servlet/view/script/");
+	}
+
+	@Test  // gh-35933
+	public void getResourceIsRestrictedToResourceLoaderPath() throws Exception {
+		MockServletContext servletContext = new MockServletContext();
+		this.wac.setServletContext(servletContext);
+		this.wac.refresh();
+		this.view.setEngine(mock(InvocableScriptEngine.class));
+		this.configurer.setRenderFunction("render");
+		this.view.setResourceLoaderPath("classpath:org/springframework/web/servlet/view/script/");
+		this.view.setApplicationContext(this.wac);
+
+		// A template that really is under the configured location still resolves.
+		assertThat(this.view.getResource("empty.txt")).isNotNull();
+
+		// "log4j2-test.xml" sits at the classpath root, i.e. outside the configured location.
+		for (String location : escapeLocations("log4j2-test.xml")) {
+			assertThat(this.view.getResource(location)).as(location).isNull();
+		}
+	}
+
+	/**
+	 * Directory traversal vectors trying to reach {@code target}, which is expected
+	 * to live outside the configured {@code resourceLoaderPath}.
+	 */
+	private static List<String> escapeLocations(String target) throws IOException {
+		List<String> locations = new ArrayList<>();
+		locations.add("/" + target);
+		locations.add(target);
+		locations.add("../" + target);
+		locations.add("../../../../../../" + target);
+		locations.add("..\\..\\..\\..\\..\\..\\" + target);
+		locations.add("..%2f..%2f..%2f..%2f..%2f..%2f" + target);
+		locations.add("%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f" + target);
+		locations.add("classpath:/" + target);
+		locations.add(new ClassPathResource(target).getURL().toString());
+		return locations;
 	}
 
 	@Test // SPR-13379
