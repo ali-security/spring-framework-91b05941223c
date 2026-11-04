@@ -19,8 +19,10 @@ package org.springframework.web.servlet.view;
 import javax.servlet.ServletRequest;
 import javax.servlet.http.HttpServletRequest;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.RequestToViewNameTranslator;
 import org.springframework.web.util.ServletRequestPathUtils;
 import org.springframework.web.util.UrlPathHelper;
@@ -170,13 +172,21 @@ public class DefaultRequestToViewNameTranslator implements RequestToViewNameTran
 	 * into the view name based on the configured parameters.
 	 * @throws IllegalArgumentException if neither a parsed RequestPath, nor a
 	 * String lookupPath have been resolved and cached as a request attribute.
+	 * @throws ResponseStatusException with a 400 error code if the path contains a "redirect:" or a "forward:" prefix
 	 * @see ServletRequestPathUtils#getCachedPath(ServletRequest)
 	 * @see #transformPath
 	 */
 	@Override
 	public String getViewName(HttpServletRequest request) {
 		String path = ServletRequestPathUtils.getCachedPathValue(request);
-		return (this.prefix + transformPath(path) + this.suffix);
+		String viewName = this.prefix + transformPath(path) + this.suffix;
+		if (viewName.startsWith(UrlBasedViewResolver.REDIRECT_URL_PREFIX)) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rejected path '" + path + "' with 'redirect:' prefix");
+		}
+		if (viewName.startsWith(UrlBasedViewResolver.FORWARD_URL_PREFIX)) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rejected path '" + path + "' with 'forward:' prefix");
+		}
+		return viewName;
 	}
 
 	/**
@@ -187,7 +197,6 @@ public class DefaultRequestToViewNameTranslator implements RequestToViewNameTran
 	 * @return the transformed path, with slashes and extensions stripped
 	 * if desired
 	 */
-	@Nullable
 	protected String transformPath(String lookupPath) {
 		String path = lookupPath;
 		if (this.stripLeadingSlash && path.startsWith(SLASH)) {
