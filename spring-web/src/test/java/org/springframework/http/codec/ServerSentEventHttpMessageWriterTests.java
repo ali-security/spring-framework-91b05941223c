@@ -110,12 +110,46 @@ class ServerSentEventHttpMessageWriterTests extends AbstractDataBufferAllocating
 		super.bufferFactory = bufferFactory;
 
 		MockServerHttpResponse outputMessage = new MockServerHttpResponse(super.bufferFactory);
-		Flux<String> source = Flux.just("foo\nbar", "foo\nbaz");
+		Flux<String> source = Flux.just("first\nsecond", "first\rsecond", "first\r\nsecond");
 		testWrite(source, outputMessage, String.class);
 
 		StepVerifier.create(outputMessage.getBody())
-				.consumeNextWith(stringConsumer("data:foo\ndata:bar\n\n"))
-				.consumeNextWith(stringConsumer("data:foo\ndata:baz\n\n"))
+				.consumeNextWith(stringConsumer("data:first\ndata:second\n\n"))
+				.consumeNextWith(stringConsumer("data:first\ndata:second\n\n"))
+				.consumeNextWith(stringConsumer("data:first\ndata:second\n\n"))
+				.expectComplete()
+				.verify();
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void writeStringWithFieldInjectionAttempt(DataBufferFactory bufferFactory) {
+		super.bufferFactory = bufferFactory;
+
+		MockServerHttpResponse outputMessage = new MockServerHttpResponse(super.bufferFactory);
+		Flux<String> source = Flux.just("foo\r\nevent:injected\r\n\r\ndata:evil");
+		testWrite(source, outputMessage, String.class);
+
+		StepVerifier.create(outputMessage.getBody())
+				.consumeNextWith(stringConsumer("data:foo\ndata:event:injected\ndata:\ndata:data:evil\n\n"))
+				.expectComplete()
+				.verify();
+	}
+
+	@ParameterizedDataBufferAllocatingTest
+	void writeMultiLineComment(DataBufferFactory bufferFactory) {
+		super.bufferFactory = bufferFactory;
+
+		MockServerHttpResponse outputMessage = new MockServerHttpResponse(super.bufferFactory);
+		Flux<ServerSentEvent> source = Flux.just(
+				ServerSentEvent.builder("payload").comment("foo\nbar\nbaz").build(),
+				ServerSentEvent.builder("payload").comment("foo\rbar\rbaz").build(),
+				ServerSentEvent.builder("payload").comment("foo\r\nbar\r\nbaz").build());
+		testWrite(source, outputMessage, ServerSentEvent.class);
+
+		StepVerifier.create(outputMessage.getBody())
+				.consumeNextWith(stringConsumer(":foo\n:bar\n:baz\ndata:payload\n\n"))
+				.consumeNextWith(stringConsumer(":foo\n:bar\n:baz\ndata:payload\n\n"))
+				.consumeNextWith(stringConsumer(":foo\n:bar\n:baz\ndata:payload\n\n"))
 				.expectComplete()
 				.verify();
 	}

@@ -132,12 +132,14 @@ final class SseServerResponse extends AbstractServerResponse {
 		@Override
 		public SseBuilder id(String id) {
 			Assert.hasLength(id, "Id must not be empty");
+			checkEvent(id);
 			return field("id", id);
 		}
 
 		@Override
 		public SseBuilder event(String eventName) {
 			Assert.hasLength(eventName, "Name must not be empty");
+			checkEvent(eventName);
 			return field("event", eventName);
 		}
 
@@ -151,16 +153,44 @@ final class SseServerResponse extends AbstractServerResponse {
 		@Override
 		public SseBuilder comment(String comment) {
 			Assert.hasLength(comment, "Comment must not be empty");
-			String[] lines = comment.split("\n");
-			for (String line : lines) {
-				field("", line);
-			}
+			this.builder.append(':');
+			appendEscaped(comment, "\n:");
+			this.builder.append('\n');
 			return this;
 		}
 
 		private SseBuilder field(String name, String value) {
 			this.builder.append(name).append(':').append(value).append('\n');
 			return this;
+		}
+
+		private static void checkEvent(String content) {
+			Assert.isTrue(content.indexOf('\n') == -1 && content.indexOf('\r') == -1,
+					"illegal character '\\n' or '\\r' in event content");
+		}
+
+		private void appendEscaped(String input, String replacement) {
+			if (input.indexOf('\n') == -1 && input.indexOf('\r') == -1) {
+				this.builder.append(input);
+			}
+			else {
+				int length = input.length();
+				for (int i = 0; i < length; i++) {
+					char c = input.charAt(i);
+					if (c == '\r') {
+						if (i + 1 < length && input.charAt(i + 1) == '\n') {
+							i++;
+						}
+						this.builder.append(replacement);
+					}
+					else if (c == '\n') {
+						this.builder.append(replacement);
+					}
+					else {
+						this.builder.append(c);
+					}
+				}
+			}
 		}
 
 		@Override
@@ -176,10 +206,9 @@ final class SseServerResponse extends AbstractServerResponse {
 		}
 
 		private void writeString(String string) throws IOException {
-			String[] lines = string.split("\n");
-			for (String line : lines) {
-				field("data", line);
-			}
+			this.builder.append("data:");
+			appendEscaped(string, "\ndata:");
+			this.builder.append('\n');
 			this.builder.append('\n');
 
 			try {

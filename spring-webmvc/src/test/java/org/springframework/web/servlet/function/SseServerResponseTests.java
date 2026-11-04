@@ -20,9 +20,13 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.servlet.ModelAndView;
@@ -30,6 +34,7 @@ import org.springframework.web.testfixture.servlet.MockHttpServletRequest;
 import org.springframework.web.testfixture.servlet.MockHttpServletResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * @author Arjen Poutsma
@@ -116,6 +121,80 @@ class SseServerResponseTests {
 				"retry:1000\n" +
 				"data:data\n\n";
 		assertThat(this.mockResponse.getContentAsString()).isEqualTo(expected);
+	}
+
+	@ParameterizedTest(name = "{1}")
+	@MethodSource("newLineCharacters")
+	void sendMultiLineString(String newLineChars, String description) throws Exception {
+		String body = "foo" + newLineChars + "event:injected" + newLineChars + newLineChars + "data:evil";
+		ServerResponse response = ServerResponse.sse(sse -> {
+			try {
+				sse.send(body);
+			}
+			catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
+		});
+
+		ServerResponse.Context context = Collections::emptyList;
+
+		ModelAndView mav = response.writeTo(this.mockRequest, this.mockResponse, context);
+		assertThat(mav).isNull();
+
+		assertThat(this.mockResponse.getContentAsString())
+				.isEqualTo("data:foo\ndata:event:injected\ndata:\ndata:data:evil\n\n");
+	}
+
+	@ParameterizedTest(name = "{1}")
+	@MethodSource("newLineCharacters")
+	void supportMultiLineComments(String newLineChars, String description) throws Exception {
+		ServerResponse response = ServerResponse.sse(sse -> {
+			try {
+				sse.comment("foo" + newLineChars + "bar" + newLineChars + "baz").data("payload");
+			}
+			catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
+		});
+
+		ServerResponse.Context context = Collections::emptyList;
+
+		ModelAndView mav = response.writeTo(this.mockRequest, this.mockResponse, context);
+		assertThat(mav).isNull();
+
+		assertThat(this.mockResponse.getContentAsString()).isEqualTo(":foo\n:bar\n:baz\ndata:payload\n\n");
+	}
+
+	@ParameterizedTest(name = "{1}")
+	@MethodSource("newLineCharacters")
+	void rejectInvalidId(String newLineChars, String description) throws Exception {
+		ServerResponse response = ServerResponse.sse(sse -> sse.id("first" + newLineChars + "second"));
+		ServerResponse.Context context = Collections::emptyList;
+
+		assertThatThrownBy(() -> response.writeTo(this.mockRequest, this.mockResponse, context))
+				.hasRootCauseInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("illegal character");
+		assertThat(this.mockResponse.getContentAsString()).isEmpty();
+	}
+
+	@ParameterizedTest(name = "{1}")
+	@MethodSource("newLineCharacters")
+	void rejectInvalidEvent(String newLineChars, String description) throws Exception {
+		ServerResponse response = ServerResponse.sse(sse -> sse.event("first" + newLineChars + "second"));
+		ServerResponse.Context context = Collections::emptyList;
+
+		assertThatThrownBy(() -> response.writeTo(this.mockRequest, this.mockResponse, context))
+				.hasRootCauseInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("illegal character");
+		assertThat(this.mockResponse.getContentAsString()).isEmpty();
+	}
+
+	private static Stream<Arguments> newLineCharacters() {
+		return Stream.of(
+				Arguments.of("\n", "LF"),
+				Arguments.of("\r", "CR"),
+				Arguments.of("\r\n", "CRLF")
+		);
 	}
 
 
