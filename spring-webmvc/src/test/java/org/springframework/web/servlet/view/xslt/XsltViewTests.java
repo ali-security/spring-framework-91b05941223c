@@ -35,6 +35,7 @@ import org.dom4j.io.SAXReader;
 import org.junit.jupiter.api.Test;
 import org.xml.sax.SAXException;
 
+import org.springframework.context.ApplicationContextException;
 import org.springframework.context.support.StaticApplicationContext;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
@@ -44,6 +45,7 @@ import org.springframework.web.testfixture.servlet.MockHttpServletResponse;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 /**
@@ -153,6 +155,63 @@ public class XsltViewTests {
 		assertHtmlOutput(this.response.getContentAsString());
 		assertThat(this.response.getContentAsString().contains("Product List")).isTrue();
 
+	}
+
+	@Test
+	public void rejectsStylesheetLocationWithTraversal() {
+		assertInvalidStylesheetLocation("/org/springframework/web/servlet/view/xslt/../xslt/products.xsl");
+	}
+
+	@Test
+	public void rejectsStylesheetLocationWithBackslashTraversal() {
+		assertInvalidStylesheetLocation("/org/springframework/web/servlet/view/xslt/..\\xslt/products.xsl");
+	}
+
+	@Test
+	public void rejectsStylesheetLocationWithEncodedTraversal() {
+		assertInvalidStylesheetLocation("/org/springframework/web/servlet/view/xslt/%2e%2e/xslt/products.xsl");
+		assertInvalidStylesheetLocation("/org/springframework/web/servlet/view/xslt/%2e%2e%5cxslt/products.xsl");
+	}
+
+	@Test
+	public void rejectsStylesheetLocationWithDoubleEncodedTraversal() {
+		assertInvalidStylesheetLocation("/org/springframework/web/servlet/view/xslt/%252e%252e/xslt/products.xsl");
+	}
+
+	@Test
+	public void rejectsStylesheetLocationThatIsUrl() {
+		assertInvalidStylesheetLocation("file:/tmp/products.xsl");
+		assertInvalidStylesheetLocation("/file:/tmp/products.xsl");
+		assertInvalidStylesheetLocation("//file:/tmp/products.xsl");
+		assertInvalidStylesheetLocation("/file%3a/tmp/products.xsl");
+		assertInvalidStylesheetLocation("http://example.org/products.xsl");
+		assertInvalidStylesheetLocation("/url:/tmp/products.xsl");
+	}
+
+	@Test
+	public void rejectsClasspathStylesheetLocationWithTraversal() {
+		assertInvalidStylesheetLocation("classpath:org/springframework/web/servlet/view/../view/xslt/products.xsl");
+	}
+
+	@Test
+	public void webInfStylesheetLocationIsNotRejected() {
+		assertThatExceptionOfType(ApplicationContextException.class)
+				.isThrownBy(() -> getXsltView("/WEB-INF/xsl/missing.xsl"))
+				.withMessageStartingWith("Can't load XSLT stylesheet");
+	}
+
+	@Test
+	public void classpathStylesheetLocationIsNotRejected() throws Exception {
+		XsltView view = getXsltView("classpath:org/springframework/web/servlet/view/xslt/products.xsl");
+		Source source = new StreamSource(getProductDataResource().getInputStream());
+		view.render(singletonMap("someKey", source), this.request, this.response);
+		assertHtmlOutput(this.response.getContentAsString());
+	}
+
+	private void assertInvalidStylesheetLocation(String url) {
+		assertThatExceptionOfType(ApplicationContextException.class)
+				.isThrownBy(() -> getXsltView(url))
+				.withMessageContaining("Invalid XSLT stylesheet location");
 	}
 
 	private org.w3c.dom.Document getDomDocument() throws ParserConfigurationException, SAXException, IOException {
