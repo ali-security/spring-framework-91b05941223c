@@ -65,11 +65,12 @@ class PathResourceLookupFunction implements Function<ServerRequest, Mono<Resourc
 		}
 
 		pathContainer = this.pattern.extractPathWithinPattern(pathContainer);
-		String path = processPath(pathContainer.value());
-		if (!StringUtils.hasText(path) || isInvalidPath(path)) {
+		String rawPath = pathContainer.value();
+		if (isInvalidEncodedInputPath(rawPath)) {
 			return Mono.empty();
 		}
-		if (isInvalidEncodedInputPath(path)) {
+		String path = processPath(rawPath);
+		if (!StringUtils.hasText(path) || isInvalidPath(path)) {
 			return Mono.empty();
 		}
 
@@ -105,7 +106,8 @@ class PathResourceLookupFunction implements Function<ServerRequest, Mono<Resourc
 	private String processPath(String path) {
 		path = StringUtils.replace(path, "\\", "/");
 		path = cleanDuplicateSlashes(path);
-		return cleanLeadingSlash(path);
+		path = cleanLeadingSlash(path);
+		return normalizePath(path);
 	}
 
 	private String cleanDuplicateSlashes(String path) {
@@ -147,6 +149,30 @@ class PathResourceLookupFunction implements Function<ServerRequest, Mono<Resourc
 		return (slash ? "/" : "");
 	}
 
+	private static String normalizePath(String path) {
+		String result = path;
+		result = decode(result);
+		if (result.contains("%")) {
+			result = decode(result);
+		}
+		if (!StringUtils.hasText(result)) {
+			return result;
+		}
+		if (result.contains("../")) {
+			return StringUtils.cleanPath(result);
+		}
+		return path;
+	}
+
+	private static String decode(String path) {
+		try {
+			return UriUtils.decode(path, StandardCharsets.UTF_8);
+		}
+		catch (Exception ex) {
+			return "";
+		}
+	}
+
 	private boolean isInvalidPath(String path) {
 		if (path.contains("WEB-INF") || path.contains("META-INF")) {
 			return true;
@@ -157,7 +183,7 @@ class PathResourceLookupFunction implements Function<ServerRequest, Mono<Resourc
 				return true;
 			}
 		}
-		return path.contains("..") && StringUtils.cleanPath(path).contains("../");
+		return path.contains("../");
 	}
 
 	/**

@@ -18,15 +18,20 @@ package org.springframework.web.reactive.function.server;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.Collections;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.testfixture.http.server.reactive.MockServerHttpRequest;
 import org.springframework.web.testfixture.server.MockServerWebExchange;
 
@@ -93,6 +98,54 @@ public class PathResourceLookupFunctionTests {
 		StepVerifier.create(result)
 				.expectComplete()
 				.verify();
+	}
+
+	@Test  // gh-33689
+	public void encodedPathWithinLocation() throws Exception {
+		PathResourceLookupFunction function = new PathResourceLookupFunction("/resources/**", fileSystemLocation());
+		Mono<Resource> result = function.apply(initRequest("/resources/response.txt"));
+
+		File expected = new ClassPathResource("child/response.txt", getClass()).getFile().getCanonicalFile();
+		StepVerifier.create(result)
+				.expectNextMatches(resource -> {
+					try {
+						return expected.equals(resource.getFile().getCanonicalFile());
+					}
+					catch (IOException ex) {
+						return false;
+					}
+				})
+				.expectComplete()
+				.verify();
+	}
+
+	@ParameterizedTest  // gh-33689
+	@ValueSource(strings = {
+			"..%2Fresponse.txt",
+			"%2E%2E%2Fresponse.txt",
+			"test%2F..%2F..%2Fresponse.txt",
+			"..%252Fresponse.txt",
+			"%252E%252E%252Fresponse.txt",
+			"%2E%2E%252Fresponse.txt",
+			"%2F%2F%2E%2E%2F%2F%2E%2E%2Fserver%2Fresponse.txt"
+	})
+	public void encodedTraversalPathIsRejected(String requestPath) throws Exception {
+		PathResourceLookupFunction function = new PathResourceLookupFunction("/resources/**", fileSystemLocation());
+		Mono<Resource> result = function.apply(initRequest("/resources/" + requestPath));
+
+		StepVerifier.create(result).expectComplete().verify();
+	}
+
+	private static Resource fileSystemLocation() throws Exception {
+		File dir = new ClassPathResource("org/springframework/web/reactive/function/server/child/").getFile();
+		return new FileSystemResource(dir.getPath() + "/");
+	}
+
+	private static ServerRequest initRequest(String requestUri) {
+		// Use the URI variant: the String variant re-encodes, and these tests rely on the raw path
+		MockServerHttpRequest mockRequest =
+				MockServerHttpRequest.method(HttpMethod.GET, URI.create("https://localhost" + requestUri)).build();
+		return new DefaultServerRequest(MockServerWebExchange.from(mockRequest), Collections.emptyList());
 	}
 
 	@Test

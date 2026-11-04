@@ -22,8 +22,11 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.handler.PathPatternsTestUtils;
 
@@ -94,6 +97,40 @@ class PathResourceLookupFunctionTests {
 		assertThat(result.isPresent()).isTrue();
 
 		assertThat(result.get().getFile()).isEqualTo(defaultResource.getFile());
+	}
+
+	@Test  // gh-33689
+	void encodedPathWithinLocation() throws Exception {
+		PathResourceLookupFunction function = new PathResourceLookupFunction("/resources/**", fileSystemLocation());
+		ServerRequest request = initRequest("GET", "/resources/response.txt");
+
+		Optional<Resource> result = function.apply(request);
+		assertThat(result).isPresent();
+
+		File expected = new ClassPathResource("child/response.txt", getClass()).getFile();
+		assertThat(result.get().getFile().getCanonicalFile()).isEqualTo(expected.getCanonicalFile());
+	}
+
+	@ParameterizedTest  // gh-33689
+	@ValueSource(strings = {
+			"..%2Fresponse.txt",
+			"%2E%2E%2Fresponse.txt",
+			"test%2F..%2F..%2Fresponse.txt",
+			"..%252Fresponse.txt",
+			"%252E%252E%252Fresponse.txt",
+			"%2E%2E%252Fresponse.txt",
+			"%2F%2F%2E%2E%2F%2F%2E%2E%2Ffunction%2Fresponse.txt"
+	})
+	void encodedTraversalPathIsRejected(String requestPath) throws Exception {
+		PathResourceLookupFunction function = new PathResourceLookupFunction("/resources/**", fileSystemLocation());
+		ServerRequest request = initRequest("GET", "/resources/" + requestPath);
+
+		assertThat(function.apply(request)).isEmpty();
+	}
+
+	private static Resource fileSystemLocation() throws Exception {
+		File dir = new ClassPathResource("org/springframework/web/servlet/function/child/").getFile();
+		return new FileSystemResource(dir.getPath() + "/");
 	}
 
 	private ServerRequest initRequest(String httpMethod, String requestUri) {

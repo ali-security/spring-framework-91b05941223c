@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -319,7 +321,34 @@ public class ResourceWebHandlerTests {
 		testInvalidPath("/../.." + secretPath, handler);
 		testInvalidPath("/%2E%2E/testsecret/secret.txt", handler);
 		testInvalidPath("/%2E%2E/testsecret/secret.txt", handler);
-		testInvalidPath("%2F%2F%2E%2E%2F%2F%2E%2E" + secretPath, handler);
+	}
+
+	@ParameterizedTest  // gh-33689
+	@ValueSource(strings = {
+			"%2E%2E/testsecret/secret.txt",
+			"..%2Ftestsecret%2Fsecret.txt",
+			"%2E%2E%2Ftestsecret%2Fsecret.txt",
+			"%252E%252E%252Ftestsecret%252Fsecret.txt",
+			"%252e%252e%252ftestsecret%252fsecret.txt",
+			"%2E%2E%252Ftestsecret%252Fsecret.txt",
+			"..%252ftestsecret%252fsecret.txt",
+			"test%252F%252E%252E%252F%252E%252E%252Ftestsecret%252Fsecret.txt"
+	})
+	public void shouldRejectEncodedTraversalPath(String requestPath) throws Exception {
+		// Use mock ResourceResolver: i.e. we're only testing upfront validations...
+
+		Resource resource = mock(Resource.class);
+		given(resource.getFilename()).willThrow(new AssertionError("Resource should not be resolved"));
+		given(resource.getInputStream()).willThrow(new AssertionError("Resource should not be resolved"));
+		ResourceResolver resolver = mock(ResourceResolver.class);
+		given(resolver.resolveResource(any(), any(), any(), any())).willReturn(Mono.just(resource));
+
+		ResourceWebHandler handler = new ResourceWebHandler();
+		handler.setLocations(Collections.singletonList(new ClassPathResource("test/", getClass())));
+		handler.setResourceResolvers(Collections.singletonList(resolver));
+		handler.afterPropertiesSet();
+
+		testInvalidPath(requestPath, handler);
 	}
 
 	private void testInvalidPath(String requestPath, ResourceWebHandler handler) {
@@ -410,6 +439,24 @@ public class ResourceWebHandlerTests {
 		assertThat(this.handler.processPath("/")).isEqualTo("/");
 		assertThat(this.handler.processPath("///")).isEqualTo("/");
 		assertThat(this.handler.processPath("/ /   / ")).isEqualTo("/");
+	}
+
+	@Test  // gh-33689
+	public void processPathWithEncodedPath() {
+		// Nothing revealed by decoding: input returned as is
+		assertThat(this.handler.processPath("/foo/a%20b.txt")).isSameAs("/foo/a%20b.txt");
+
+		// Path that cannot be decoded: rejected with an empty path
+		assertThat(this.handler.processPath("/%foo%/bar.txt")).isEmpty();
+		assertThat(this.handler.processPath("/foo/%2E%2E%/bar.txt")).isEmpty();
+
+		// Encoded "../" revealed by decoding: input normalized
+		assertThat(this.handler.processPath("/foo/%2E%2E/bar.txt")).isEqualTo("/bar.txt");
+		assertThat(this.handler.processPath("%2E%2E%2Fbar.txt")).isEqualTo("../bar.txt");
+
+		// Double encoded "../" revealed by decoding twice: input normalized
+		assertThat(this.handler.processPath("/foo/%252E%252E/bar.txt")).isEqualTo("/bar.txt");
+		assertThat(this.handler.processPath("%252E%252E%252Fbar.txt")).isEqualTo("../bar.txt");
 	}
 
 	@Test
